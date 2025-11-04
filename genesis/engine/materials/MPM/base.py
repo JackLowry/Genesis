@@ -16,7 +16,7 @@ class Base(Material):
 
     Parameters
     ----------
-    E: float, optional
+    E: float | gs.Tensor, optional
         Young's modulus. Default is 1e6.
     nu: float, optional
         Poisson ratio. Default is 0.2.
@@ -44,25 +44,62 @@ class Base(Material):
         """
         super().__init__()
 
-        self._E = E
-        self._nu = nu
-        self._rho = rho
+        self._E = ti.field(dtype=gs.ti_float, shape=())
+        if isinstance(E, float):
+            self._E[None] = E
+        elif isinstance(E, ti.Field):
+            self._E = E
+        else:
+            gs.raise_exception(f"Unsupported type of E: {type(E)}")
+        
+        self._nu = ti.field(dtype=gs.ti_float, shape=())
+        if isinstance(nu, float):
+            self._nu[None] = nu
+        elif isinstance(nu, ti.Field):
+            self._nu = nu
+        else:
+            gs.raise_exception(f"Unsupported type of nu: {type(nu)}")
+
+
+        self._rho = ti.field(dtype=gs.ti_float, shape=())
+        if isinstance(rho, float):
+            self._rho[None] = rho
+        elif isinstance(rho, ti.Field):
+            self._rho = rho
+        else:
+            gs.raise_exception(f"Unsupported type of rho: {type(rho)}")
+
+        # lame parameters: https://github.com/taichi-dev/taichi_elements/blob/d19678869a28b09a32ef415b162e35dc929b792d/engine/mpm_solver.py#L203
+        self._mu = ti.field(dtype=gs.ti_float, shape=())
+        if mu is None:
+            self._mu[None] =  E / (2.0 * (1.0 + nu))
+        elif isinstance(mu, float):
+            self._mu[None] = mu
+        elif isinstance(mu, ti.Field):
+            self._mu = mu
+        else:
+            gs.raise_exception(f"Unsupported type of mu: {type(mu)}")
+
+        self._lam = ti.field(dtype=gs.ti_float, shape=())
+        if lam is None:
+            self._lam[None] = E * nu / ((1.0 + nu) * (1.0 - 2.0 * nu))
+        elif isinstance(lam, float):
+            self._lam[None] = lam
+        elif isinstance(lam, ti.Field):
+            self._lam = lam
+        else:
+            gs.raise_exception(f"Unsupported type of lam: {type(lam)}")
+        
         self._sampler = sampler
         self._default_Jp = 1.0
 
-        # lame parameters: https://github.com/taichi-dev/taichi_elements/blob/d19678869a28b09a32ef415b162e35dc929b792d/engine/mpm_solver.py#L203
-        if mu is None:
-            self._mu = E / (2.0 * (1.0 + nu))
-        else:
-            self._mu = mu
-
-        if lam is None:
-            self._lam = E * nu / ((1.0 + nu) * (1.0 - 2.0 * nu))
-        else:
-            self._lam = lam
 
         # will be set when added to solver
         self._idx = None
+
+    # @ti.kernel
+    # def _kernel_set_E(self, E: ti.types.ndarray):
+    #     self._E = E[0]
 
     @classmethod
     def _repr_type(cls):
@@ -75,9 +112,9 @@ class Base(Material):
     @ti.func
     def update_stress(self, U, S, V, F_tmp, F_new, J, Jp, actu, m_dir):
         # NOTE: class member function inheritance will still introduce redundant computation graph in taichi
-        stress = 2 * self._mu * (F_new - U @ V.transpose()) @ F_new.transpose() + ti.Matrix.identity(
+        stress = 2 * self._mu[None] * (F_new - U @ V.transpose()) @ F_new.transpose() + ti.Matrix.identity(
             gs.ti_float, 3
-        ) * self._lam * J * (J - 1)
+        ) * self._lam[None] * J * (J - 1)
 
         return stress
 

@@ -11,7 +11,7 @@ def main():
     args = parser.parse_args()
 
     ########################## init ##########################
-    gs.init(seed=0, precision="32", logging_level="warning")
+    gs.init(seed=0, precision="32")
 
     ########################## create a scene ##########################
 
@@ -47,7 +47,7 @@ def main():
         ),
     )
     obj1 = scene.add_entity(
-        material=gs.materials.MPM.Elastic(rho=500),
+        material=gs.materials.MPM.Elastic(rho=500.0),
         morph=gs.morphs.Box(
             lower=(0.2, 0.1, 0.05),
             upper=(0.4, 0.3, 0.15),
@@ -58,7 +58,7 @@ def main():
         vis_mode="particle",
     )
     obj2 = scene.add_entity(
-        material=gs.materials.MPM.Elastic(rho=500),
+        material=gs.materials.MPM.Elastic(rho=500.0),
         morph=gs.morphs.Mesh(
             file="meshes/duck.obj",
             pos=(0.4, 0.55, 0.056),
@@ -86,12 +86,12 @@ def main():
     )
 
     ########################## build ##########################
-    scene.build(n_envs=2)
+    scene.build(n_envs=1000)
 
     ########################## forward + backward twice ##########################
     horizon = 150
     v_list = [gs.tensor([[0.0, 1.0, 0.0], [0.0, 1.0, 0.0]], requires_grad=True) for _ in range(horizon)]
-    for _ in range(2):
+    for _ in range(10):
         scene.reset()
         init_pos = gs.tensor([[0.3, 0.1, 0.28], [0.3, 0.1, 0.5]], requires_grad=True)
 
@@ -140,7 +140,7 @@ def main():
         loss.backward()  # this lets gradient flow all the way back to tensor input
         timer.stamp("backward took: ")
         for v_i in v_list:
-            print(v_i.grad)
+            # print(v_i.grad)
             v_i.zero_grad()
         init_pos.zero_grad()
         print(loss.item())

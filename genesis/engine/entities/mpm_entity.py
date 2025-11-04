@@ -66,7 +66,7 @@ class MPMEntity(ParticleEntity):
 
         Sets up the list of keys for target states, including velocity, position, activeness, and actuation.
         """
-        self._tgt_keys = ["vel", "pos", "act", "actu"]
+        self._tgt_keys = ["vel", "pos", "act", "actu", "material_E"]
 
     def _add_to_solver_(self):
         self._solver._kernel_add_particles(
@@ -182,6 +182,23 @@ class MPMEntity(ParticleEntity):
             self._particle_start,
             self._n_particles,
             actu_grad,
+        )
+
+    def set_E(self, f, E):
+        """
+        Set material Young's modulus at a specific frame.
+
+        Parameters
+        ----------
+        f : int
+            The current substep index.
+        E : gs.Tensor
+            A tensor of shape (B, 1) representing Young's modulus.
+        """
+        self.solver._kernel_set_material_E(
+            f,
+            self._material.idx,
+            E
         )
 
     def set_muscle_group(self, muscle_group):
@@ -357,6 +374,42 @@ class MPMEntity(ParticleEntity):
             free,
         )
 
+    # ------------------------------------------------------------------------------------
+    # ---------------------------------- material ---------------------------------------
+    # ------------------------------------------------------------------------------------
+
+    def set_material_E(self, E: float | gs.Tensor):
+        """
+        Set material Young's modulus.
+
+        Parameters
+        ----------
+        vel : torch.Tensor | float
+            Desired Young's Modulus. Accepted shapes:
+            - (1,)
+
+        Raises
+        ------
+        GenesisException
+            If the shape of `E` is not supported.
+        """
+        self._assert_active()
+        if self.sim.requires_grad:
+            gs.logger.warning(
+                "Manually setting particle velocities. This is not recommended and could break gradient flow."
+            )
+
+        if isinstance(E, float):
+            E = gs.Tensor([E])
+        else:
+            E = to_gs_tensor(E)
+
+        is_valid = False
+        if E.shape == (1,):
+            self._tgt["material_E"] = E.tile((self._sim._B, 1))
+        if not is_valid:
+            gs.raise_exception("Tensor shape not supported.")
+
     def get_free(self):
         """
         Get free/fixed status for all particles.
@@ -438,6 +491,11 @@ class MPMEntity(ParticleEntity):
             self._tgt["actu"].assert_contiguous()
             self._tgt["actu"].assert_sceneless()
             self.set_actu(self._sim.cur_substep_local, self._tgt["actu"])
+        
+        if self._tgt["material_E"] is not None:
+            self._tgt["material_E"].assert_contiguous()
+            self._tgt["material_E"].assert_sceneless()
+            self.set_E(self._sim.cur_substep_local, self._tgt["material_E"])
 
         for key in self._tgt_keys:
             self._tgt[key] = None

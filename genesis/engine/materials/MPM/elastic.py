@@ -64,9 +64,9 @@ class Elastic(Base):
 
     @ti.func
     def update_stress_corotation(self, U, S, V, F_tmp, F_new, J, Jp, actu, m_dir):
-        stress = 2 * self._mu * (F_new - U @ V.transpose()) @ F_new.transpose() + ti.Matrix.identity(
+        stress = 2 * self._mu[None] * (F_new - U @ V.transpose()) @ F_new.transpose() + ti.Matrix.identity(
             gs.ti_float, 3
-        ) * self._lam * J * (J - 1)
+        ) * self._lam[None] * J * (J - 1)
 
         return stress
 

@@ -117,12 +117,14 @@ class MPMSolver(Solver):
         # static particle info
         struct_particle_info = ti.types.struct(
             mat_idx=gs.ti_int,
-            mass=gs.ti_float,
             default_Jp=gs.ti_float,
             free=gs.ti_bool,
             # for muscle
             muscle_group=gs.ti_int,
             muscle_direction=gs.ti_vec3,
+        )
+        struct_particle_info_with_grad = ti.types.struct(
+            mass=gs.ti_float,
         )
 
         # single frame particle state for rendering
@@ -145,6 +147,9 @@ class MPMSolver(Solver):
         )
         self.particles_info = struct_particle_info.field(
             shape=self._n_particles, needs_grad=False, layout=ti.Layout.SOA
+        )
+        self.particles_info_with_grad = struct_particle_info_with_grad.field(
+            shape=self._n_particles, needs_grad=True, layout=ti.Layout.SOA
         )
         self.particles_render = struct_particle_state_render.field(
             shape=self._batch_shape(self._n_particles), needs_grad=False, layout=ti.Layout.SOA
@@ -198,6 +203,7 @@ class MPMSolver(Solver):
     def reset_grad(self):
         self.particles.grad.fill(0)
         self.grid.grad.fill(0)
+        self.particles_info_with_grad.grad.fill(0)
 
         for entity in self._entities:
             entity.reset_grad()
@@ -386,7 +392,7 @@ class MPMSolver(Solver):
                             m_dir=self.particles_info[i_p].muscle_direction,
                         )
                 stress = (-self.substep_dt * self._p_vol * 4 * self._inv_dx * self._inv_dx) * stress
-                affine = stress + self.particles_info[i_p].mass * self.particles[f, i_p, i_b].C
+                affine = stress + self.particles_info_with_grad[i_p].mass * self.particles[f, i_p, i_b].C
 
                 # C. project onto grid
                 base = ti.floor(self.particles[f, i_p, i_b].pos * self._inv_dx - 0.5).cast(gs.ti_int)
@@ -422,10 +428,10 @@ class MPMSolver(Solver):
                         self._coupler.cpic_flag[i_p, offset[0], offset[1], offset[2], i_b] = sep_geom_idx
                     if sep_geom_idx == -1:
                         self.grid[f, base - self._grid_offset + offset, i_b].vel_in += weight * (
-                            self.particles_info[i_p].mass * self.particles[f, i_p, i_b].vel + affine @ dpos
+                            self.particles_info_with_grad[i_p].mass * self.particles[f, i_p, i_b].vel + affine @ dpos
                         )
                         self.grid[f, base - self._grid_offset + offset, i_b].mass += (
-                            weight * self.particles_info[i_p].mass
+                            weight * self.particles_info_with_grad[i_p].mass
                         )
 
                     if not self.particles_info[i_p].free:  # non-free particles behave as boundary conditions
@@ -453,7 +459,7 @@ class MPMSolver(Solver):
                             grid_vel = self.sim.coupler._func_collide_in_rigid_geom(
                                 self.particles[f, i_p, i_b].pos,
                                 self.particles[f, i_p, i_b].vel,
-                                self.particles_info[i_p].mass * weight / self._p_vol_scale,
+                                self.particles_info_with_grad[i_p].mass * weight / self._p_vol_scale,
                                 self._coupler.mpm_rigid_normal[i_p, sep_geom_idx, i_b],
                                 1.0,
                                 sep_geom_idx,
@@ -562,6 +568,8 @@ class MPMSolver(Solver):
             self.particles.grad[i_f, i_p, i_b].U = ti.Matrix.zero(gs.ti_float, 3, 3)
             self.particles.grad[i_f, i_p, i_b].V = ti.Matrix.zero(gs.ti_float, 3, 3)
             self.particles.grad[i_f, i_p, i_b].S = ti.Matrix.zero(gs.ti_float, 3, 3)
+
+            # self.particles_info_with_grad.grad[i_f, i_p, i_b].mass = gs.ti_float(0.0)
 
     # ------------------------------------------------------------------------------------
     # ------------------------------------ gradient --------------------------------------
@@ -696,7 +704,7 @@ class MPMSolver(Solver):
         n_particles: ti.i32,
         mat_idx: ti.i32,
         mat_default_Jp: ti.f32,
-        mat_rho: ti.f32,
+        mat_rho: ti.template(),
         pos: ti.types.ndarray(),
     ):
         for i_p in range(n_particles):
@@ -704,7 +712,7 @@ class MPMSolver(Solver):
 
             self.particles_info[i_global].mat_idx = mat_idx
             self.particles_info[i_global].default_Jp = mat_default_Jp
-            self.particles_info[i_global].mass = self._p_vol * mat_rho
+            self.particles_info_with_grad[i_global].mass = self._p_vol * mat_rho[None]
             self.particles_info[i_global].free = True
             self.particles_info[i_global].muscle_group = 0
             self.particles_info[i_global].muscle_direction = ti.Vector([0.0, 0.0, 1.0], dt=gs.ti_float)
@@ -903,6 +911,15 @@ class MPMSolver(Solver):
             free[i_p] = self.particles_info[i_global].free
 
     @ti.kernel
+    def _kernel_set_material_E(
+        self,
+        f: ti.i32,
+        mat_idx: ti.i32,
+        E: ti.types.ndarray(),  # shape [B, 1]
+    ):
+        self._mats[mat_idx]._E = E
+
+    @ti.kernel
     def _kernel_get_state(
         self,
         f: ti.i32,
@@ -986,6 +1003,7 @@ class MPMSolver(Solver):
 
     def update_render_fields(self):
         self._kernel_update_render_fields(self.sim.cur_substep_local)
+
 
     # ------------------------------------------------------------------------------------
     # ----------------------------------- properties -------------------------------------

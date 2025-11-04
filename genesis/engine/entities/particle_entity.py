@@ -135,7 +135,7 @@ class ParticleEntity(Entity):
         """
         Initialize the list of keys used for controlling entity state (position, velocity, activation).
         """
-        self._tgt_keys = ["vel", "pos", "act"]
+        self._tgt_keys = ["vel", "pos", "act", "material_E"]
 
     def _add_to_solver(self):
         if isinstance(self._morph, gs.options.morphs.Nowhere):
@@ -422,6 +422,7 @@ class ParticleEntity(Entity):
                 is_valid = True
         if not is_valid:
             gs.raise_exception("Tensor shape not supported.")
+            
 
     def set_velocity(self, vel):
         """
@@ -569,6 +570,8 @@ class ParticleEntity(Entity):
             # one step could have multiple states
             for state in self._queried_states[self._sim.cur_step_global]:
                 self.add_grad_from_state(state)
+
+
 
     # ------------------------------------------------------------------------------------
     # ---------------------------------- io & control ------------------------------------
