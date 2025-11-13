@@ -1,5 +1,4 @@
 import argparse
-
 import torch
 
 import genesis as gs
@@ -86,7 +85,7 @@ def main():
     )
 
     ########################## build ##########################
-    scene.build(n_envs=1000)
+    scene.build(n_envs=1)
 
     ########################## forward + backward twice ##########################
     horizon = 150
